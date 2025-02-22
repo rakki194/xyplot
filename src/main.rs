@@ -7,7 +7,7 @@
     clippy::cast_possible_wrap        // Acceptable for image dimensions
 )]
 
-use ab_glyph::{Font, FontRef, Point, PxScale, point};
+use ab_glyph::{Font, FontRef, Point, PxScale};
 use anyhow::{Context, Result};
 use clap::Parser;
 use image::{Rgb, RgbImage};
@@ -60,12 +60,15 @@ fn draw_text(
 
     // Calculate total text width for centering
     let mut total_width = 0.0;
-    let glyphs: Vec<_> = text.chars().map(|c| {
-        let glyph_id = font.glyph_id(c);
-        let advance = font.h_advance_unscaled(glyph_id);
-        total_width += advance;
-        glyph_id
-    }).collect();
+    let glyphs: Vec<_> = text
+        .chars()
+        .map(|c| {
+            let glyph_id = font.glyph_id(c);
+            let advance = font.h_advance_unscaled(glyph_id);
+            total_width += advance;
+            glyph_id
+        })
+        .collect();
 
     // Start position, accounting for total width to center the text
     let start_x = x - ((total_width * scale) / 2.0) as i32;
@@ -162,7 +165,15 @@ fn save_image_plot(args: &Args) -> Result<()> {
     for (i, label) in column_labels.iter().enumerate() {
         let x = i32::try_from(u32::try_from(i)? * image_width + left_padding + image_width / 2)
             .map_err(|_| anyhow::anyhow!("Position overflow"))?;
-        draw_text(&mut canvas, label, x, label_height as i32 / 2, scale, &font, color);
+        draw_text(
+            &mut canvas,
+            label,
+            x,
+            label_height as i32 / 2,
+            scale,
+            &font,
+            color,
+        );
     }
 
     // Place images and labels
