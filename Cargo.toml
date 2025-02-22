@@ -7,7 +7,7 @@ description = "A tool for plotting images in a grid with labels"
 
 [dependencies]
 xio = "0.1.7"
-imx = "0.1.1"
+imx = "0.1.2"
 tokio = { version = "1.43.0", features = ["full"] }
 clap = { version = "4.5.30", features = ["derive"] }
 anyhow = "1.0.96"
