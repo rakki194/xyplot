@@ -4,8 +4,8 @@ use ab_glyph::{Font, FontRef, Point, PxScale};
 use anyhow::{Context, Result};
 use clap::Parser;
 use image::{Rgb, RgbImage};
-use std::path::PathBuf;
 use imx::numeric;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -89,11 +89,7 @@ fn draw_text(
                     let pixel =
                         canvas.get_pixel_mut(numeric::i32_to_u32(x), numeric::i32_to_u32(y));
                     let coverage = numeric::f32_to_u8(coverage * 255.0);
-                    *pixel = Rgb([
-                        ((255 - coverage) + coverage * color[0] / 255),
-                        ((255 - coverage) + coverage * color[1] / 255),
-                        ((255 - coverage) + coverage * color[2] / 255),
-                    ]);
+                    *pixel = Rgb([color[0], color[1], color[2]]);
                 }
             });
         }
@@ -156,8 +152,8 @@ fn save_image_plot(args: &Args) -> Result<()> {
     // Load font
     let font_data = include_bytes!("../assets/DejaVuSans.ttf");
     let font = FontRef::try_from_slice(font_data).context("Failed to load font")?;
-    let scale = 40.0;  // Increased from 20.0 to make text more visible
-    let color = Rgb([0, 0, 0]);
+    let scale = 80.0; // Increased scale significantly for better visibility
+    let color = Rgb([0, 0, 0]); // Pure black
 
     // Add column labels
     for (i, label) in column_labels.iter().enumerate() {
@@ -167,7 +163,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
             &mut canvas,
             label,
             x,
-            numeric::u32_to_i32(label_height) / 2,
+            numeric::u32_to_i32(top_padding / 2), // Position text in middle of top padding
             scale,
             &font,
             color,
@@ -187,9 +183,12 @@ fn save_image_plot(args: &Args) -> Result<()> {
         // Add image label if provided (above the image)
         if i < u32::try_from(labels.len())? {
             let x = numeric::u32_to_i32(x_start + image_width / 2);
-            let label_y = numeric::u32_to_i32(y_start - label_height / 2);
+            let label_y = numeric::u32_to_i32(y_start - top_padding / 2); // Position text in middle of top padding
             let label_text = &labels[i as usize];
-            println!("Drawing label '{}' at position ({}, {})", label_text, x, label_y);
+            println!(
+                "Drawing label '{}' at position ({}, {})",
+                label_text, x, label_y
+            );
             draw_text(&mut canvas, label_text, x, label_y, scale, &font, color);
         }
 
