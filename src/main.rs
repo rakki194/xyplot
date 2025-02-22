@@ -128,13 +128,10 @@ fn save_image_plot(args: &Args) -> Result<()> {
         0
     };
 
-    let has_other_labels = !labels.is_empty() || !row_labels.is_empty();
-    let canvas_height = if !has_other_labels && !column_labels.is_empty() {
-        image_height * rows + top_padding
-    } else {
-        (image_height + top_padding) * rows
-    };
-
+    // Calculate canvas dimensions with space for labels
+    let has_labels = !labels.is_empty() || !row_labels.is_empty() || !column_labels.is_empty();
+    let row_height = image_height + (if has_labels { top_padding } else { 0 });
+    let canvas_height = row_height * rows + (if has_labels { top_padding } else { 0 });
     let canvas_width = image_width * cols + left_padding;
 
     // Create canvas
@@ -163,38 +160,30 @@ fn save_image_plot(args: &Args) -> Result<()> {
         let row = i / cols;
         let col = i % cols;
 
+        // Calculate positions
+        let x_start = col * image_width + left_padding;
+        let y_start = row * row_height + top_padding;
+
+        // Add image label if provided (above the image)
+        if i < u32::try_from(labels.len())? {
+            let x = i32::try_from(x_start + image_width / 2)
+                .map_err(|_| anyhow::anyhow!("Position overflow"))?;
+            let y = i32::try_from(y_start - label_height)
+                .map_err(|_| anyhow::anyhow!("Position overflow"))?;
+            draw_text(&mut canvas, &labels[i as usize], x, y, scale, &font, color);
+        }
+
         // Add row label
         if row < u32::try_from(row_labels.len())? {
-            let y = row * (image_height + top_padding) + label_height as u32;
             draw_text(
                 &mut canvas,
                 &row_labels[row as usize],
                 5,
-                y as i32,
+                y_start as i32 + (image_height / 2) as i32,
                 scale,
                 &font,
                 color,
             );
-        }
-
-        let y_start = if !has_other_labels && !column_labels.is_empty() {
-            row * image_height + top_padding
-        } else {
-            row * (image_height + top_padding) + top_padding
-        };
-
-        let x_start = col * image_width + left_padding;
-
-        // Add image label if provided (above the image)
-        if i < u32::try_from(labels.len())? {
-            let x = i32::try_from(col * image_width + left_padding + image_width / 2)
-                .map_err(|_| anyhow::anyhow!("Position overflow"))?;
-            let label_y = if y_start >= label_height {
-                y_start - label_height
-            } else {
-                0
-            };
-            draw_text(&mut canvas, &labels[i as usize], x, label_y as i32, scale, &font, color);
         }
 
         // Load and place image
