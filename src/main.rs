@@ -57,17 +57,28 @@ fn draw_text(
     color: Rgb<u8>,
 ) {
     let px_scale = PxScale::from(scale);
-    let position = Point {
-        x: x as f32,
-        y: y as f32,
-    };
+
+    // Calculate total text width for centering
+    let mut total_width = 0.0;
+    let glyphs: Vec<_> = text.chars().map(|c| {
+        let glyph_id = font.glyph_id(c);
+        let advance = font.h_advance_unscaled(glyph_id);
+        total_width += advance;
+        glyph_id
+    }).collect();
+
+    // Start position, accounting for total width to center the text
+    let start_x = x - ((total_width * scale) / 2.0) as i32;
+    let mut x_offset = 0.0;
 
     // Draw each character
-    let mut x_offset = 0.0;
-    for c in text.chars() {
-        let glyph_id = font.glyph_id(c);
-        let glyph =
-            glyph_id.with_scale_and_position(px_scale, point(position.x + x_offset, position.y));
+    for glyph_id in glyphs {
+        let position = Point {
+            x: (start_x as f32 + x_offset),
+            y: y as f32,
+        };
+
+        let glyph = glyph_id.with_scale_and_position(px_scale, position);
 
         if let Some(outlined) = font.outline_glyph(glyph) {
             let bounds = outlined.px_bounds();
