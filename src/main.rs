@@ -132,8 +132,8 @@ fn save_image_plot(args: &Args) -> Result<()> {
     let (image_width, image_height) = first_image.dimensions();
 
     // Define canvas dimensions
-    let top_padding: u32 = 50; // Space for labels above images
-    let label_height: u32 = 30; // Height for each label
+    let top_padding: u32 = 100; // Increased from 50 to give more space for labels
+    let label_height: u32 = 50; // Increased from 30 to give more height for labels
     let left_padding = if row_labels.iter().any(|l| !l.is_empty()) {
         40
     } else {
@@ -187,7 +187,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
         // Add image label if provided (above the image)
         if i < u32::try_from(labels.len())? {
             let x = numeric::u32_to_i32(x_start + image_width / 2);
-            let label_y = numeric::u32_to_i32(y_start - label_height);
+            let label_y = numeric::u32_to_i32(y_start - label_height / 2);
             let label_text = &labels[i as usize];
             println!("Drawing label '{}' at position ({}, {})", label_text, x, label_y);
             draw_text(&mut canvas, label_text, x, label_y, scale, &font, color);
