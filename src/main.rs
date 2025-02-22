@@ -249,7 +249,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
     // Load font
     let font_data = include_bytes!("../assets/DejaVuSans.ttf");
     let font = FontRef::try_from_slice(font_data).context("Failed to load font")?;
-    let scale = 20.0;
+    let scale = 40.0;  // Increased from 20.0 to make text more visible
     let color = Rgb([0, 0, 0]);
 
     // Add column labels
@@ -280,15 +280,10 @@ fn save_image_plot(args: &Args) -> Result<()> {
         // Add image label if provided (above the image)
         if i < u32::try_from(labels.len())? {
             let x = numeric::u32_to_i32(x_start + image_width / 2);
-            // Position labels in the padding space above each image
-            let label_y = if row == 0 {
-                // First row: position in the initial top padding
-                numeric::u32_to_i32(top_padding / 2)
-            } else {
-                // Other rows: position in the space between rows
-                numeric::u32_to_i32(y_start - top_padding / 2)
-            };
-            draw_text(&mut canvas, &labels[i as usize], x, label_y, scale, &font, color);
+            let label_y = numeric::u32_to_i32(y_start - label_height);
+            let label_text = &labels[i as usize];
+            println!("Drawing label '{}' at position ({}, {})", label_text, x, label_y);
+            draw_text(&mut canvas, label_text, x, label_y, scale, &font, color);
         }
 
         // Add row label
