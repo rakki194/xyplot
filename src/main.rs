@@ -13,7 +13,7 @@ mod numeric {
     pub(crate) const F32_MIN_SAFE_INT: f32 = -16_777_216.0;
 
     /// Safely convert f32 to i32, clamping to i32's range
-    /// 
+    ///
     /// This function handles several edge cases:
     /// - NaN values are converted to 0
     /// - Values outside `i32`'s range are clamped
@@ -35,7 +35,7 @@ mod numeric {
     }
 
     /// Safely convert i32 to u32, clamping negative values to 0
-    /// 
+    ///
     /// This conversion is safe because:
     /// - Negative values are clamped to 0
     /// - Positive values are within `u32`'s range
@@ -48,7 +48,7 @@ mod numeric {
     }
 
     /// Safely convert u32 to i32, clamping to i32's range
-    /// 
+    ///
     /// This conversion is safe because:
     /// - Values above `i32::MAX` are clamped
     #[must_use]
@@ -64,7 +64,7 @@ mod numeric {
     }
 
     /// Safely convert f32 to u8, clamping to u8's range
-    /// 
+    ///
     /// This conversion is safe because:
     /// - NaN values are converted to 0
     /// - Values are clamped to 0..=255
@@ -86,7 +86,7 @@ mod numeric {
     }
 
     /// Safely convert i32 to f32 for text positioning
-    /// 
+    ///
     /// While this conversion can lose precision for large values,
     /// it's acceptable for text positioning where:
     /// - Values are typically small (screen coordinates)
@@ -177,12 +177,10 @@ fn draw_text(
                 let y = numeric::f32_to_i32(bounds.min.y) + numeric::u32_to_i32(gy);
                 let canvas_width = numeric::u32_to_i32(canvas.width());
                 let canvas_height = numeric::u32_to_i32(canvas.height());
-                
+
                 if x >= 0 && y >= 0 && x < canvas_width && y < canvas_height {
-                    let pixel = canvas.get_pixel_mut(
-                        numeric::i32_to_u32(x),
-                        numeric::i32_to_u32(y),
-                    );
+                    let pixel =
+                        canvas.get_pixel_mut(numeric::i32_to_u32(x), numeric::i32_to_u32(y));
                     let coverage = numeric::f32_to_u8(coverage * 255.0);
                     *pixel = Rgb([
                         ((255 - coverage) + coverage * color[0] / 255),
@@ -256,7 +254,8 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
     // Add column labels
     for (i, label) in column_labels.iter().enumerate() {
-        let x = numeric::u32_to_i32(u32::try_from(i)? * image_width + left_padding + image_width / 2);
+        let x =
+            numeric::u32_to_i32(u32::try_from(i)? * image_width + left_padding + image_width / 2);
         draw_text(
             &mut canvas,
             label,
@@ -281,8 +280,15 @@ fn save_image_plot(args: &Args) -> Result<()> {
         // Add image label if provided (above the image)
         if i < u32::try_from(labels.len())? {
             let x = numeric::u32_to_i32(x_start + image_width / 2);
-            let y = numeric::u32_to_i32(y_start.saturating_sub(label_height));
-            draw_text(&mut canvas, &labels[i as usize], x, y, scale, &font, color);
+            // Position labels in the padding space above each image
+            let label_y = if row == 0 {
+                // First row: position in the initial top padding
+                numeric::u32_to_i32(top_padding / 2)
+            } else {
+                // Other rows: position in the space between rows
+                numeric::u32_to_i32(y_start - top_padding / 2)
+            };
+            draw_text(&mut canvas, &labels[i as usize], x, label_y, scale, &font, color);
         }
 
         // Add row label
@@ -349,10 +355,16 @@ mod tests {
             assert_eq!(numeric::f32_to_i32(f32::NEG_INFINITY), i32::MIN);
             assert_eq!(numeric::f32_to_i32(TEST_SAFE_INT_MAX), i32::MAX);
             assert_eq!(numeric::f32_to_i32(TEST_SAFE_INT_MIN), i32::MIN);
-            
+
             // Values just inside bounds
-            assert_eq!(numeric::f32_to_i32(TEST_SAFE_INT_MAX - 1.0), (TEST_SAFE_INT_MAX - 1.0) as i32);
-            assert_eq!(numeric::f32_to_i32(TEST_SAFE_INT_MIN + 1.0), (TEST_SAFE_INT_MIN + 1.0) as i32);
+            assert_eq!(
+                numeric::f32_to_i32(TEST_SAFE_INT_MAX - 1.0),
+                (TEST_SAFE_INT_MAX - 1.0) as i32
+            );
+            assert_eq!(
+                numeric::f32_to_i32(TEST_SAFE_INT_MIN + 1.0),
+                (TEST_SAFE_INT_MIN + 1.0) as i32
+            );
         }
 
         #[test]
@@ -361,7 +373,7 @@ mod tests {
             assert_eq!(numeric::i32_to_u32(0), 0);
             assert_eq!(numeric::i32_to_u32(1), 1);
             assert_eq!(numeric::i32_to_u32(i32::MAX), i32::MAX as u32);
-            
+
             // Negative values should clamp to 0
             assert_eq!(numeric::i32_to_u32(-1), 0);
             assert_eq!(numeric::i32_to_u32(i32::MIN), 0);
@@ -374,11 +386,11 @@ mod tests {
             assert_eq!(numeric::u32_to_i32(0), 0);
             assert_eq!(numeric::u32_to_i32(1), 1);
             assert_eq!(numeric::u32_to_i32(i32::MAX as u32), i32::MAX);
-            
+
             // Values above i32::MAX should clamp
             assert_eq!(numeric::u32_to_i32(i32::MAX as u32 + 1), i32::MAX);
             assert_eq!(numeric::u32_to_i32(u32::MAX), i32::MAX);
-            
+
             // Values just below the boundary
             assert_eq!(numeric::u32_to_i32(i32::MAX as u32 - 1), i32::MAX - 1);
         }
@@ -392,14 +404,14 @@ mod tests {
             assert_eq!(numeric::f32_to_u8(255.0), 255);
             assert_eq!(numeric::f32_to_u8(127.4), 127);
             assert_eq!(numeric::f32_to_u8(127.6), 128);
-            
+
             // Edge cases
             assert_eq!(numeric::f32_to_u8(f32::NAN), 0);
             assert_eq!(numeric::f32_to_u8(f32::INFINITY), 255);
             assert_eq!(numeric::f32_to_u8(f32::NEG_INFINITY), 0);
             assert_eq!(numeric::f32_to_u8(-1.0), 0);
             assert_eq!(numeric::f32_to_u8(256.0), 255);
-            
+
             // Values just inside bounds
             assert_eq!(numeric::f32_to_u8(254.4), 254);
             assert_eq!(numeric::f32_to_u8(254.6), 255);
@@ -413,14 +425,20 @@ mod tests {
             assert_eq!(numeric::i32_to_f32_for_pos(0), 0.0);
             assert_eq!(numeric::i32_to_f32_for_pos(100), 100.0);
             assert_eq!(numeric::i32_to_f32_for_pos(-100), -100.0);
-            
+
             // Test larger values that might lose precision
             let large_value = 16_777_216; // 2^24, largest integer that f32 can represent exactly
             assert_eq!(numeric::i32_to_f32_for_pos(large_value), large_value as f32);
-            
+
             // Test extreme values
-            assert_eq!(numeric::i32_to_f32_for_pos(i32::MAX).round() as i32, i32::MAX);
-            assert_eq!(numeric::i32_to_f32_for_pos(i32::MIN).round() as i32, i32::MIN);
+            assert_eq!(
+                numeric::i32_to_f32_for_pos(i32::MAX).round() as i32,
+                i32::MAX
+            );
+            assert_eq!(
+                numeric::i32_to_f32_for_pos(i32::MIN).round() as i32,
+                i32::MIN
+            );
         }
     }
 
