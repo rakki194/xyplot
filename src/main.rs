@@ -252,7 +252,6 @@ mod tests {
         let img2_path = temp_dir.path().join("test2.png");
         let output_path = temp_dir.path().join("output.png");
 
-        // Create test images
         create_test_image(&img1_path, 100, 100)?;
         create_test_image(&img2_path, 100, 100)?;
 
@@ -277,7 +276,6 @@ mod tests {
         let img2_path = temp_dir.path().join("test2.png");
         let output_path = temp_dir.path().join("output.png");
 
-        // Create test images
         create_test_image(&img1_path, 100, 100)?;
         create_test_image(&img2_path, 100, 100)?;
 
@@ -302,7 +300,6 @@ mod tests {
         let img2_path = temp_dir.path().join("test2.png");
         let output_path = temp_dir.path().join("output.png");
 
-        // Create test images
         create_test_image(&img1_path, 100, 100)?;
         create_test_image(&img2_path, 100, 100)?;
 
@@ -321,6 +318,132 @@ mod tests {
     }
 
     #[test]
+    fn test_different_image_sizes() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let img1_path = temp_dir.path().join("test1.png");
+        let img2_path = temp_dir.path().join("test2.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        create_test_image(&img1_path, 200, 150)?;
+        create_test_image(&img2_path, 100, 100)?;
+
+        let args = Args {
+            images: vec![img1_path, img2_path],
+            labels: vec!["Wide Image".to_string(), "Square Image".to_string()],
+            output: output_path.clone(),
+            rows: 2,
+            row_labels: vec![],
+            column_labels: vec![],
+        };
+
+        save_image_plot(&args)?;
+        assert!(output_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn test_single_image() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let img_path = temp_dir.path().join("test1.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        create_test_image(&img_path, 100, 100)?;
+
+        let args = Args {
+            images: vec![img_path],
+            labels: vec!["Single".to_string()],
+            output: output_path.clone(),
+            rows: 1,
+            row_labels: vec![],
+            column_labels: vec![],
+        };
+
+        save_image_plot(&args)?;
+        assert!(output_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn test_many_images() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let output_path = temp_dir.path().join("output.png");
+        let mut image_paths = Vec::new();
+        let mut labels = Vec::new();
+
+        // Create 9 test images
+        for i in 0..9 {
+            let img_path = temp_dir.path().join(format!("test{i}.png"));
+            create_test_image(&img_path, 100, 100)?;
+            image_paths.push(img_path);
+            labels.push(format!("Image {i}"));
+        }
+
+        let args = Args {
+            images: image_paths,
+            labels,
+            output: output_path.clone(),
+            rows: 3,
+            row_labels: vec!["Top".to_string(), "Middle".to_string(), "Bottom".to_string()],
+            column_labels: vec!["Left".to_string(), "Center".to_string(), "Right".to_string()],
+        };
+
+        save_image_plot(&args)?;
+        assert!(output_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn test_unicode_labels() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let img1_path = temp_dir.path().join("test1.png");
+        let img2_path = temp_dir.path().join("test2.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        create_test_image(&img1_path, 100, 100)?;
+        create_test_image(&img2_path, 100, 100)?;
+
+        let args = Args {
+            images: vec![img1_path, img2_path],
+            labels: vec!["🌟 Star".to_string(), "🌍 Earth".to_string()],
+            output: output_path.clone(),
+            rows: 1,
+            row_labels: vec![],
+            column_labels: vec![],
+        };
+
+        save_image_plot(&args)?;
+        assert!(output_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn test_long_labels() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let img1_path = temp_dir.path().join("test1.png");
+        let img2_path = temp_dir.path().join("test2.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        create_test_image(&img1_path, 100, 100)?;
+        create_test_image(&img2_path, 100, 100)?;
+
+        let args = Args {
+            images: vec![img1_path, img2_path],
+            labels: vec![
+                "This is a very long label that should still be centered properly".to_string(),
+                "Another long label to test text wrapping and positioning".to_string(),
+            ],
+            output: output_path.clone(),
+            rows: 1,
+            row_labels: vec![],
+            column_labels: vec![],
+        };
+
+        save_image_plot(&args)?;
+        assert!(output_path.exists());
+        Ok(())
+    }
+
+    #[test]
     #[should_panic(expected = "Number of labels should match the number of images")]
     fn test_mismatched_labels() {
         let temp_dir = tempdir().unwrap();
@@ -328,13 +451,12 @@ mod tests {
         let img2_path = temp_dir.path().join("test2.png");
         let output_path = temp_dir.path().join("output.png");
 
-        // Create test images
         create_test_image(&img1_path, 100, 100).unwrap();
         create_test_image(&img2_path, 100, 100).unwrap();
 
         let args = Args {
             images: vec![img1_path, img2_path],
-            labels: vec!["Label 1".to_string()], // Only one label for two images
+            labels: vec!["Label 1".to_string()],
             output: output_path,
             rows: 1,
             row_labels: vec![],
@@ -351,7 +473,6 @@ mod tests {
         let img1_path = temp_dir.path().join("test1.png");
         let output_path = temp_dir.path().join("output.png");
 
-        // Create test image
         create_test_image(&img1_path, 100, 100).unwrap();
 
         let args = Args {
@@ -359,10 +480,55 @@ mod tests {
             labels: vec![],
             output: output_path,
             rows: 1,
-            row_labels: vec!["Row 1".to_string(), "Row 2".to_string()], // Two row labels for one row
+            row_labels: vec!["Row 1".to_string(), "Row 2".to_string()],
             column_labels: vec![],
         };
 
         save_image_plot(&args).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Number of column labels should match the number of columns")]
+    fn test_mismatched_column_labels() {
+        let temp_dir = tempdir().unwrap();
+        let img1_path = temp_dir.path().join("test1.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        create_test_image(&img1_path, 100, 100).unwrap();
+
+        let args = Args {
+            images: vec![img1_path],
+            labels: vec![],
+            output: output_path,
+            rows: 1,
+            row_labels: vec![],
+            column_labels: vec!["Col 1".to_string(), "Col 2".to_string()],
+        };
+
+        save_image_plot(&args).unwrap();
+    }
+
+    #[test]
+    fn test_empty_labels() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let img1_path = temp_dir.path().join("test1.png");
+        let img2_path = temp_dir.path().join("test2.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        create_test_image(&img1_path, 100, 100)?;
+        create_test_image(&img2_path, 100, 100)?;
+
+        let args = Args {
+            images: vec![img1_path, img2_path],
+            labels: vec!["".to_string(), "".to_string()],
+            output: output_path.clone(),
+            rows: 1,
+            row_labels: vec![],
+            column_labels: vec![],
+        };
+
+        save_image_plot(&args)?;
+        assert!(output_path.exists());
+        Ok(())
     }
 }
