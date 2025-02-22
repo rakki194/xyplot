@@ -1,17 +1,104 @@
 #![warn(clippy::all, clippy::pedantic)]
-// Allow certain clippy lints that are acceptable for our image processing use case
-#![allow(
-    clippy::cast_possible_truncation, // Acceptable for image processing
-    clippy::cast_sign_loss,           // Acceptable for coordinate conversions
-    clippy::cast_precision_loss,      // Acceptable for font rendering
-    clippy::cast_possible_wrap        // Acceptable for image dimensions
-)]
 
 use ab_glyph::{Font, FontRef, Point, PxScale};
 use anyhow::{Context, Result};
 use clap::Parser;
 use image::{Rgb, RgbImage};
 use std::path::PathBuf;
+
+/// Helper functions for safe numeric conversions
+mod numeric {
+    /// Constants for f32 range that can safely represent integers
+    const F32_MAX_SAFE_INT: f32 = 16_777_216.0; // 2^24, maximum integer that f32 can represent exactly
+    const F32_MIN_SAFE_INT: f32 = -16_777_216.0;
+
+    /// Safely convert f32 to i32, clamping to i32's range
+    /// 
+    /// This function handles several edge cases:
+    /// - NaN values are converted to 0
+    /// - Values outside `i32`'s range are clamped
+    /// - Values are rounded to nearest integer
+    #[must_use]
+    pub fn f32_to_i32(x: f32) -> i32 {
+        if x.is_nan() {
+            0
+        } else if x >= F32_MAX_SAFE_INT {
+            i32::MAX
+        } else if x <= F32_MIN_SAFE_INT {
+            i32::MIN
+        } else {
+            // Safe because we've bounded x within safe integer range
+            #[allow(clippy::cast_possible_truncation)]
+            let result = x.round() as i32;
+            result
+        }
+    }
+
+    /// Safely convert i32 to u32, clamping negative values to 0
+    /// 
+    /// This conversion is safe because:
+    /// - Negative values are clamped to 0
+    /// - Positive values are within `u32`'s range
+    #[must_use]
+    pub fn i32_to_u32(x: i32) -> u32 {
+        // Safe because we're clamping negative values to 0
+        #[allow(clippy::cast_sign_loss)]
+        let result = x.max(0) as u32;
+        result
+    }
+
+    /// Safely convert u32 to i32, clamping to i32's range
+    /// 
+    /// This conversion is safe because:
+    /// - Values above `i32::MAX` are clamped
+    #[must_use]
+    pub fn u32_to_i32(x: u32) -> i32 {
+        if x > i32::MAX as u32 {
+            i32::MAX
+        } else {
+            // Safe because we've checked the upper bound
+            #[allow(clippy::cast_possible_wrap)]
+            let result = x as i32;
+            result
+        }
+    }
+
+    /// Safely convert f32 to u8, clamping to u8's range
+    /// 
+    /// This conversion is safe because:
+    /// - NaN values are converted to 0
+    /// - Values are clamped to 0..=255
+    /// - Values are rounded to nearest integer
+    #[must_use]
+    pub fn f32_to_u8(x: f32) -> u8 {
+        if x.is_nan() {
+            0
+        } else if x >= 255.0 {
+            255
+        } else if x <= 0.0 {
+            0
+        } else {
+            // Safe because we've bounded x within u8's range
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let result = x.round() as u8;
+            result
+        }
+    }
+
+    /// Safely convert i32 to f32 for text positioning
+    /// 
+    /// While this conversion can lose precision for large values,
+    /// it's acceptable for text positioning where:
+    /// - Values are typically small (screen coordinates)
+    /// - Sub-pixel precision isn't critical
+    #[must_use]
+    pub fn i32_to_f32_for_pos(x: i32) -> f32 {
+        // Safe for text positioning where precision isn't critical
+        #[allow(clippy::cast_precision_loss)]
+        let result = x as f32;
+        result
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -71,14 +158,14 @@ fn draw_text(
         .collect();
 
     // Start position, accounting for total width to center the text
-    let start_x = x - ((total_width * scale) / 2.0) as i32;
+    let start_x = x - numeric::f32_to_i32(total_width * scale / 2.0);
     let mut x_offset = 0.0;
 
     // Draw each character
     for glyph_id in glyphs {
         let position = Point {
-            x: (start_x as f32 + x_offset),
-            y: y as f32,
+            x: numeric::i32_to_f32_for_pos(start_x) + x_offset,
+            y: numeric::i32_to_f32_for_pos(y),
         };
 
         let glyph = glyph_id.with_scale_and_position(px_scale, position);
@@ -86,11 +173,17 @@ fn draw_text(
         if let Some(outlined) = font.outline_glyph(glyph) {
             let bounds = outlined.px_bounds();
             outlined.draw(|gx, gy, coverage| {
-                let x = bounds.min.x as i32 + gx as i32;
-                let y = bounds.min.y as i32 + gy as i32;
-                if x >= 0 && y >= 0 && x < canvas.width() as i32 && y < canvas.height() as i32 {
-                    let pixel = canvas.get_pixel_mut(x as u32, y as u32);
-                    let coverage = (coverage * 255.0) as u8;
+                let x = numeric::f32_to_i32(bounds.min.x) + numeric::u32_to_i32(gx);
+                let y = numeric::f32_to_i32(bounds.min.y) + numeric::u32_to_i32(gy);
+                let canvas_width = numeric::u32_to_i32(canvas.width());
+                let canvas_height = numeric::u32_to_i32(canvas.height());
+                
+                if x >= 0 && y >= 0 && x < canvas_width && y < canvas_height {
+                    let pixel = canvas.get_pixel_mut(
+                        numeric::i32_to_u32(x),
+                        numeric::i32_to_u32(y),
+                    );
+                    let coverage = numeric::f32_to_u8(coverage * 255.0);
                     *pixel = Rgb([
                         ((255 - coverage) + coverage * color[0] / 255),
                         ((255 - coverage) + coverage * color[1] / 255),
@@ -163,13 +256,12 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
     // Add column labels
     for (i, label) in column_labels.iter().enumerate() {
-        let x = i32::try_from(u32::try_from(i)? * image_width + left_padding + image_width / 2)
-            .map_err(|_| anyhow::anyhow!("Position overflow"))?;
+        let x = numeric::u32_to_i32(u32::try_from(i)? * image_width + left_padding + image_width / 2);
         draw_text(
             &mut canvas,
             label,
             x,
-            label_height as i32 / 2,
+            numeric::u32_to_i32(label_height) / 2,
             scale,
             &font,
             color,
@@ -188,10 +280,8 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
         // Add image label if provided (above the image)
         if i < u32::try_from(labels.len())? {
-            let x = i32::try_from(x_start + image_width / 2)
-                .map_err(|_| anyhow::anyhow!("Position overflow"))?;
-            let y = i32::try_from(y_start - label_height)
-                .map_err(|_| anyhow::anyhow!("Position overflow"))?;
+            let x = numeric::u32_to_i32(x_start + image_width / 2);
+            let y = numeric::u32_to_i32(y_start.saturating_sub(label_height));
             draw_text(&mut canvas, &labels[i as usize], x, y, scale, &font, color);
         }
 
@@ -201,7 +291,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
                 &mut canvas,
                 &row_labels[row as usize],
                 5,
-                y_start as i32 + (image_height / 2) as i32,
+                numeric::u32_to_i32(y_start + image_height / 2),
                 scale,
                 &font,
                 color,
@@ -383,8 +473,16 @@ mod tests {
             labels,
             output: output_path.clone(),
             rows: 3,
-            row_labels: vec!["Top".to_string(), "Middle".to_string(), "Bottom".to_string()],
-            column_labels: vec!["Left".to_string(), "Center".to_string(), "Right".to_string()],
+            row_labels: vec![
+                "Top".to_string(),
+                "Middle".to_string(),
+                "Bottom".to_string(),
+            ],
+            column_labels: vec![
+                "Left".to_string(),
+                "Center".to_string(),
+                "Right".to_string(),
+            ],
         };
 
         save_image_plot(&args)?;

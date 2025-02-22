@@ -13,7 +13,7 @@ A Rust tool for plotting images in a grid layout with optional labels. This is a
 ## Installation
 
 ```bash
-cargo install --path .
+cargo install xyplot
 ```
 
 ## Usage
