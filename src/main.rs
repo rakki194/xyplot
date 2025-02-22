@@ -120,7 +120,8 @@ fn save_image_plot(args: &Args) -> Result<()> {
     let (image_width, image_height) = first_image.dimensions();
 
     // Define canvas dimensions
-    let top_padding = 50;
+    let top_padding: u32 = 50; // Space for labels above images
+    let label_height: u32 = 30; // Height for each label
     let left_padding = if row_labels.iter().any(|l| !l.is_empty()) {
         40
     } else {
@@ -151,9 +152,9 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
     // Add column labels
     for (i, label) in column_labels.iter().enumerate() {
-        let x = i32::try_from(u32::try_from(i)? * image_width + left_padding)
+        let x = i32::try_from(u32::try_from(i)? * image_width + left_padding + image_width / 2)
             .map_err(|_| anyhow::anyhow!("Position overflow"))?;
-        draw_text(&mut canvas, label, x, 15, scale, &font, color);
+        draw_text(&mut canvas, label, x, label_height as i32 / 2, scale, &font, color);
     }
 
     // Place images and labels
@@ -164,7 +165,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
         // Add row label
         if row < u32::try_from(row_labels.len())? {
-            let y = row * (image_height + top_padding) + 30;
+            let y = row * (image_height + top_padding) + label_height as u32;
             draw_text(
                 &mut canvas,
                 &row_labels[row as usize],
@@ -176,11 +177,6 @@ fn save_image_plot(args: &Args) -> Result<()> {
             );
         }
 
-        // Load and place image
-        let img = image::open(img_path)
-            .with_context(|| format!("Failed to open image: {img_path:?}"))?
-            .to_rgb8();
-
         let y_start = if !has_other_labels && !column_labels.is_empty() {
             row * image_height + top_padding
         } else {
@@ -189,20 +185,28 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
         let x_start = col * image_width + left_padding;
 
+        // Add image label if provided (above the image)
+        if i < u32::try_from(labels.len())? {
+            let x = i32::try_from(col * image_width + left_padding + image_width / 2)
+                .map_err(|_| anyhow::anyhow!("Position overflow"))?;
+            let label_y = if y_start >= label_height {
+                y_start - label_height
+            } else {
+                0
+            };
+            draw_text(&mut canvas, &labels[i as usize], x, label_y as i32, scale, &font, color);
+        }
+
+        // Load and place image
+        let img = image::open(img_path)
+            .with_context(|| format!("Failed to open image: {img_path:?}"))?
+            .to_rgb8();
+
         // Copy image to canvas
         for (x, y, pixel) in img.enumerate_pixels() {
             if x_start + x < canvas_width && y_start + y < canvas_height {
                 canvas.put_pixel(x_start + x, y_start + y, *pixel);
             }
-        }
-
-        // Add image label if provided
-        if i < u32::try_from(labels.len())? {
-            let x = i32::try_from(col * image_width + left_padding)
-                .map_err(|_| anyhow::anyhow!("Position overflow"))?;
-            let y = i32::try_from(y_start + image_height / 2)
-                .map_err(|_| anyhow::anyhow!("Position overflow"))?;
-            draw_text(&mut canvas, &labels[i as usize], x, y, scale, &font, color);
         }
     }
 
@@ -213,4 +217,141 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
     println!("Generated plot saved as {:?}", args.output);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn create_test_image(path: &std::path::Path, width: u32, height: u32) -> Result<()> {
+        let mut img = RgbImage::new(width, height);
+        // Fill with a test pattern
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            *pixel = Rgb([((x * 255) / width) as u8, ((y * 255) / height) as u8, 128u8]);
+        }
+        img.save(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_basic_plot() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let img1_path = temp_dir.path().join("test1.png");
+        let img2_path = temp_dir.path().join("test2.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        // Create test images
+        create_test_image(&img1_path, 100, 100)?;
+        create_test_image(&img2_path, 100, 100)?;
+
+        let args = Args {
+            images: vec![img1_path, img2_path],
+            labels: vec![],
+            output: output_path.clone(),
+            rows: 1,
+            row_labels: vec![],
+            column_labels: vec![],
+        };
+
+        save_image_plot(&args)?;
+        assert!(output_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn test_with_labels() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let img1_path = temp_dir.path().join("test1.png");
+        let img2_path = temp_dir.path().join("test2.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        // Create test images
+        create_test_image(&img1_path, 100, 100)?;
+        create_test_image(&img2_path, 100, 100)?;
+
+        let args = Args {
+            images: vec![img1_path, img2_path],
+            labels: vec!["Label 1".to_string(), "Label 2".to_string()],
+            output: output_path.clone(),
+            rows: 1,
+            row_labels: vec![],
+            column_labels: vec![],
+        };
+
+        save_image_plot(&args)?;
+        assert!(output_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn test_with_row_and_column_labels() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let img1_path = temp_dir.path().join("test1.png");
+        let img2_path = temp_dir.path().join("test2.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        // Create test images
+        create_test_image(&img1_path, 100, 100)?;
+        create_test_image(&img2_path, 100, 100)?;
+
+        let args = Args {
+            images: vec![img1_path, img2_path],
+            labels: vec!["Label 1".to_string(), "Label 2".to_string()],
+            output: output_path.clone(),
+            rows: 2,
+            row_labels: vec!["Row 1".to_string(), "Row 2".to_string()],
+            column_labels: vec!["Col 1".to_string()],
+        };
+
+        save_image_plot(&args)?;
+        assert!(output_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "Number of labels should match the number of images")]
+    fn test_mismatched_labels() {
+        let temp_dir = tempdir().unwrap();
+        let img1_path = temp_dir.path().join("test1.png");
+        let img2_path = temp_dir.path().join("test2.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        // Create test images
+        create_test_image(&img1_path, 100, 100).unwrap();
+        create_test_image(&img2_path, 100, 100).unwrap();
+
+        let args = Args {
+            images: vec![img1_path, img2_path],
+            labels: vec!["Label 1".to_string()], // Only one label for two images
+            output: output_path,
+            rows: 1,
+            row_labels: vec![],
+            column_labels: vec![],
+        };
+
+        save_image_plot(&args).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Number of row labels should match the number of rows")]
+    fn test_mismatched_row_labels() {
+        let temp_dir = tempdir().unwrap();
+        let img1_path = temp_dir.path().join("test1.png");
+        let output_path = temp_dir.path().join("output.png");
+
+        // Create test image
+        create_test_image(&img1_path, 100, 100).unwrap();
+
+        let args = Args {
+            images: vec![img1_path],
+            labels: vec![],
+            output: output_path,
+            rows: 1,
+            row_labels: vec!["Row 1".to_string(), "Row 2".to_string()], // Two row labels for one row
+            column_labels: vec![],
+        };
+
+        save_image_plot(&args).unwrap();
+    }
 }
