@@ -1,6 +1,6 @@
 #![warn(clippy::all, clippy::pedantic)]
 
-use ab_glyph::{Font, FontRef, Point, PxScale, ScaleFont};
+use ab_glyph::{Font, FontRef, GlyphId, Point, PxScale, ScaleFont};
 use anyhow::{Context, Result};
 use clap::Parser;
 use image::{Rgb, RgbImage};
@@ -13,10 +13,6 @@ struct Args {
     /// List of image file paths
     #[arg(required = true)]
     images: Vec<PathBuf>,
-
-    /// List of optional labels for each image
-    #[arg(long)]
-    labels: Vec<String>,
 
     /// Output file name for the generated plot
     #[arg(long, default_value = "output.jpg")]
@@ -41,17 +37,35 @@ async fn main() -> Result<()> {
     save_image_plot(&args)
 }
 
+#[derive(Clone, Copy)]
+struct FontPair<'a> {
+    main: &'a FontRef<'a>,
+    emoji: &'a FontRef<'a>,
+}
+
+impl<'a> FontPair<'a> {
+    fn glyph_id(&self, c: char) -> (GlyphId, &'a FontRef<'a>) {
+        let main_id = self.main.glyph_id(c);
+        // Check if the main font has a real glyph for this char (not a .notdef glyph)
+        if self.main.outline(main_id).is_some() {
+            (main_id, self.main)
+        } else {
+            let emoji_id = self.emoji.glyph_id(c);
+            (emoji_id, self.emoji)
+        }
+    }
+}
+
 fn draw_text(
     canvas: &mut RgbImage,
     text: &str,
     x: i32,
     y: i32,
     scale: f32,
-    font: &FontRef,
+    fonts: FontPair,
     color: Rgb<u8>,
 ) {
     let px_scale = PxScale::from(scale);
-    let scaled_font = font.as_scaled(px_scale);
 
     // Layout the glyphs in a line with 20 pixels padding
     let mut glyphs = Vec::new();
@@ -60,15 +74,18 @@ fn draw_text(
         y: numeric::i32_to_f32_for_pos(y),
     };
 
+    // First pass: calculate positions and collect glyphs
     for c in text.chars() {
-        let glyph = scaled_font.scaled_glyph(c);
-        let glyph = glyph.id.with_scale_and_position(scaled_font.scale(), cursor);
+        let (id, font) = fonts.glyph_id(c);
+        let scaled_font = font.as_scaled(px_scale);
+        let glyph = id.with_scale(scaled_font.scale()).positioned(cursor);
         cursor.x += scaled_font.h_advance(glyph.id);
-        glyphs.push(glyph);
+        glyphs.push((glyph, font));
     }
 
-    // Draw the glyphs
-    for glyph in glyphs {
+    // Second pass: render glyphs
+    for (glyph, font) in glyphs {
+        let scaled_font = font.as_scaled(px_scale);
         if let Some(outlined) = scaled_font.outline_glyph(glyph) {
             let bounds = outlined.px_bounds();
             outlined.draw(|x, y, coverage| {
@@ -98,25 +115,43 @@ fn draw_text(
                 }
             });
         }
+
+        // Check for color emoji image
+        if let Some(img) = font.glyph_raster_image2(glyph.id, u16::MAX) {
+            if let Some(data) = img.data.as_rgba() {
+                let img_width = img.width as u32;
+                let scale_factor = scale / img.pixels_per_em as f32;
+                let scaled_width = (img_width as f32 * scale_factor) as u32;
+                let scaled_height = (img.height as f32 * scale_factor) as u32;
+
+                for (img_y, row) in data.chunks_exact(img_width as usize * 4).enumerate() {
+                    for (img_x, pixel) in row.chunks_exact(4).enumerate() {
+                        let src_x = img_x as f32 * scale_factor;
+                        let src_y = img_y as f32 * scale_factor;
+                        let canvas_x = (glyph.position.x + src_x + img.origin.x * scale_factor) as u32;
+                        let canvas_y = (glyph.position.y + src_y + img.origin.y * scale_factor) as u32;
+
+                        if canvas_x < canvas.width() && canvas_y < canvas.height() {
+                            let canvas_pixel = canvas.get_pixel_mut(canvas_x, canvas_y);
+                            let alpha = pixel[3] as f32 / 255.0;
+                            canvas_pixel[0] = ((1.0 - alpha) * canvas_pixel[0] as f32 + alpha * pixel[0] as f32) as u8;
+                            canvas_pixel[1] = ((1.0 - alpha) * canvas_pixel[1] as f32 + alpha * pixel[1] as f32) as u8;
+                            canvas_pixel[2] = ((1.0 - alpha) * canvas_pixel[2] as f32 + alpha * pixel[2] as f32) as u8;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 fn save_image_plot(args: &Args) -> Result<()> {
     let images = &args.images;
-    let labels = &args.labels;
     let row_labels = &args.row_labels;
     let column_labels = &args.column_labels;
     let rows = args.rows;
 
     // Validate inputs
-    if !labels.is_empty() && labels.len() != images.len() {
-        anyhow::bail!(
-            "Number of labels ({}) should match the number of images ({})",
-            labels.len(),
-            images.len()
-        );
-    }
-
     if !row_labels.is_empty() && row_labels.len() != rows as usize {
         anyhow::bail!(
             "Number of row labels ({}) should match the number of rows ({})",
@@ -144,8 +179,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
     let (image_width, image_height) = first_image.dimensions();
 
     // Define canvas dimensions
-    let top_padding: u32 = 100; // Increased from 50 to give more space for labels
-    let label_height: u32 = 50; // Increased from 30 to give more height for labels
+    let label_height: u32 = 20; // Increased from 30 to give more height for labels
     let left_padding = if row_labels.iter().any(|l| !l.is_empty()) {
         150 // Increased from 40 to give more space for row labels
     } else {
@@ -153,7 +187,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
     };
 
     // Calculate canvas dimensions with space for labels
-    let has_labels = !labels.is_empty() || !row_labels.is_empty() || !column_labels.is_empty();
+    let has_labels = !row_labels.is_empty() || !column_labels.is_empty();
     let row_height = image_height + (if has_labels { top_padding } else { 0 });
     let canvas_height = row_height * rows + (if has_labels { top_padding } else { 0 });
     let canvas_width = image_width * cols + left_padding;
@@ -165,9 +199,17 @@ fn save_image_plot(args: &Args) -> Result<()> {
         *pixel = Rgb([255, 255, 255]);
     }
 
-    // Load font
+    // Load fonts
     let font_data = include_bytes!("../assets/DejaVuSans.ttf");
-    let font = FontRef::try_from_slice(font_data).context("Failed to load font")?;
+    let main_font = FontRef::try_from_slice(font_data).context("Failed to load main font")?;
+    
+    let emoji_font_data = include_bytes!("../assets/NotoColorEmoji.ttf");
+    let emoji_font = FontRef::try_from_slice(emoji_font_data).context("Failed to load emoji font")?;
+
+    let fonts = FontPair {
+        main: &main_font,
+        emoji: &emoji_font,
+    };
 
     // Add column labels
     if !column_labels.is_empty() {
@@ -180,7 +222,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
                 x - ((label.len() as f32 * 20.0) / 2.0) as i32, // Center text
                 y,
                 24.0,
-                &font,
+                fonts,
                 Rgb([0, 0, 0]),
             );
         }
@@ -196,26 +238,19 @@ fn save_image_plot(args: &Args) -> Result<()> {
         let x_start = col * image_width + left_padding;
         let y_start = row * row_height + top_padding;
 
-        // Add image label if provided (above the image)
-        if let Some(label) = labels.get(i as usize) {
-            let x = (x_start + image_width / 2) as i32;
-            let y = (y_start - label_height / 2) as i32;
-            draw_text(
-                &mut canvas,
-                label,
-                x - ((label.len() as f32 * 20.0) / 2.0) as i32, // Center text
-                y,
-                20.0,
-                &font,
-                Rgb([0, 0, 0]),
-            );
-        }
-
         // Add row label if provided (left of the image)
         if let Some(row_label) = row_labels.get(row as usize) {
             let x = 20;
             let y = (y_start + image_height / 2) as i32;
-            draw_text(&mut canvas, row_label, x, y, 24.0, &font, Rgb([0, 0, 0]));
+            draw_text(
+                &mut canvas,
+                row_label,
+                x,
+                y,
+                24.0,
+                fonts,
+                Rgb([0, 0, 0]),
+            );
         }
 
         // Load and place image
@@ -267,7 +302,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path, img2_path],
-            labels: vec![],
             output: output_path.clone(),
             rows: 1,
             row_labels: vec![],
@@ -291,7 +325,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path, img2_path],
-            labels: vec!["Label 1".to_string(), "Label 2".to_string()],
             output: output_path.clone(),
             rows: 1,
             row_labels: vec![],
@@ -315,7 +348,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path, img2_path],
-            labels: vec!["Label 1".to_string(), "Label 2".to_string()],
             output: output_path.clone(),
             rows: 2,
             row_labels: vec!["Row 1".to_string(), "Row 2".to_string()],
@@ -339,7 +371,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path, img2_path],
-            labels: vec!["Wide Image".to_string(), "Square Image".to_string()],
             output: output_path.clone(),
             rows: 2,
             row_labels: vec![],
@@ -361,7 +392,6 @@ mod tests {
 
         let args = Args {
             images: vec![img_path],
-            labels: vec!["Single".to_string()],
             output: output_path.clone(),
             rows: 1,
             row_labels: vec![],
@@ -390,7 +420,6 @@ mod tests {
 
         let args = Args {
             images: image_paths,
-            labels,
             output: output_path.clone(),
             rows: 3,
             row_labels: vec![
@@ -422,7 +451,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path, img2_path],
-            labels: vec!["🌟 Star".to_string(), "🌍 Earth".to_string()],
             output: output_path.clone(),
             rows: 1,
             row_labels: vec![],
@@ -446,10 +474,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path, img2_path],
-            labels: vec![
-                "This is a very long label that should still be centered properly".to_string(),
-                "Another long label to test text wrapping and positioning".to_string(),
-            ],
             output: output_path.clone(),
             rows: 1,
             row_labels: vec![],
@@ -474,7 +498,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path, img2_path],
-            labels: vec!["Label 1".to_string()],
             output: output_path,
             rows: 1,
             row_labels: vec![],
@@ -495,7 +518,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path],
-            labels: vec![],
             output: output_path,
             rows: 1,
             row_labels: vec!["Row 1".to_string(), "Row 2".to_string()],
@@ -516,7 +538,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path],
-            labels: vec![],
             output: output_path,
             rows: 1,
             row_labels: vec![],
@@ -538,7 +559,6 @@ mod tests {
 
         let args = Args {
             images: vec![img1_path, img2_path],
-            labels: vec!["".to_string(), "".to_string()],
             output: output_path.clone(),
             rows: 1,
             row_labels: vec![],

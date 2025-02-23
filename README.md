@@ -5,7 +5,6 @@ A Rust tool for plotting images in a grid layout with optional labels. This is a
 ## Features
 
 - Plot multiple images in a grid layout
-- Add labels to images
 - Add row and column labels
 - Configurable number of rows
 - White background with black text labels
@@ -21,9 +20,6 @@ cargo install xyplot
 ```bash
 # Basic usage with just images
 xyplot image1.jpg image2.jpg image3.jpg
-
-# With image labels
-xyplot image1.jpg image2.jpg image3.jpg --labels "Label 1" "Label 2" "Label 3"
 
 # Specify number of rows
 xyplot image1.jpg image2.jpg image3.jpg image4.jpg --rows 2
