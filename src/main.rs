@@ -1,6 +1,6 @@
 #![warn(clippy::all, clippy::pedantic)]
 
-use ab_glyph::{Font, FontRef, Point, PxScale};
+use ab_glyph::{Font, FontRef, Point, PxScale, ScaleFont};
 use anyhow::{Context, Result};
 use clap::Parser;
 use image::{Rgb, RgbImage};
@@ -50,7 +50,55 @@ fn draw_text(
     font: &FontRef,
     color: Rgb<u8>,
 ) {
+    let px_scale = PxScale::from(scale);
+    let scaled_font = font.as_scaled(px_scale);
 
+    // Layout the glyphs in a line with 20 pixels padding
+    let mut glyphs = Vec::new();
+    let mut cursor = Point {
+        x: numeric::i32_to_f32_for_pos(x),
+        y: numeric::i32_to_f32_for_pos(y),
+    };
+
+    for c in text.chars() {
+        let glyph = scaled_font.scaled_glyph(c);
+        let glyph = glyph.id.with_scale_and_position(scaled_font.scale(), cursor);
+        cursor.x += scaled_font.h_advance(glyph.id);
+        glyphs.push(glyph);
+    }
+
+    // Draw the glyphs
+    for glyph in glyphs {
+        if let Some(outlined) = scaled_font.outline_glyph(glyph) {
+            let bounds = outlined.px_bounds();
+            outlined.draw(|x, y, coverage| {
+                // Convert the coverage value into an alpha channel value
+                let alpha = (coverage * 255.0) as u8;
+                if alpha == 0 {
+                    return;
+                }
+
+                // Get absolute pixel coordinates
+                let px = (x as i32 + bounds.min.x as i32) as u32;
+                let py = (y as i32 + bounds.min.y as i32) as u32;
+
+                // Blend the color with the existing pixel based on alpha
+                if px < canvas.width() && py < canvas.height() {
+                    let pixel = canvas.get_pixel_mut(px, py);
+                    let blend = |a: u8, b: u8, alpha: u8| -> u8 {
+                        let a = a as f32;
+                        let b = b as f32;
+                        let alpha = alpha as f32 / 255.0;
+                        ((a * (1.0 - alpha) + b * alpha) as u8).min(255)
+                    };
+
+                    pixel[0] = blend(pixel[0], color[0], alpha);
+                    pixel[1] = blend(pixel[1], color[1], alpha);
+                    pixel[2] = blend(pixel[2], color[2], alpha);
+                }
+            });
+        }
+    }
 }
 
 fn save_image_plot(args: &Args) -> Result<()> {
@@ -87,7 +135,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
     let top_padding: u32 = 100; // Increased from 50 to give more space for labels
     let label_height: u32 = 50; // Increased from 30 to give more height for labels
     let left_padding = if row_labels.iter().any(|l| !l.is_empty()) {
-        40
+        150 // Increased from 40 to give more space for row labels
     } else {
         0
     };
@@ -106,8 +154,24 @@ fn save_image_plot(args: &Args) -> Result<()> {
     }
 
     // Load font
+    let font_data = include_bytes!("../assets/DejaVuSans.ttf");
+    let font = FontRef::try_from_slice(font_data).context("Failed to load font")?;
 
     // Add column labels
+    if !column_labels.is_empty() {
+        for (col, label) in column_labels.iter().enumerate() {
+            let x = (col as u32 * image_width + left_padding + image_width / 2) as i32;
+            let y = (top_padding / 2) as i32;
+            draw_text(
+                &mut canvas,
+                label,
+                x - ((label.len() as f32 * 20.0) / 2.0) as i32, // Center text
+                y,
+                24.0,
+                &font,
+                Rgb([0, 0, 0]),
+            );
+        }
     }
 
     // Place images and labels
@@ -121,8 +185,26 @@ fn save_image_plot(args: &Args) -> Result<()> {
         let y_start = row * row_height + top_padding;
 
         // Add image label if provided (above the image)
+        if let Some(label) = labels.get(i as usize) {
+            let x = (x_start + image_width / 2) as i32;
+            let y = (y_start - label_height / 2) as i32;
+            draw_text(
+                &mut canvas,
+                label,
+                x - ((label.len() as f32 * 20.0) / 2.0) as i32, // Center text
+                y,
+                20.0,
+                &font,
+                Rgb([0, 0, 0]),
+            );
+        }
 
         // Add row label if provided (left of the image)
+        if let Some(row_label) = row_labels.get(row as usize) {
+            let x = 20;
+            let y = (y_start + image_height / 2) as i32;
+            draw_text(&mut canvas, row_label, x, y, 24.0, &font, Rgb([0, 0, 0]));
+        }
 
         // Load and place image
         let img = image::open(img_path)
