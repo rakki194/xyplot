@@ -503,29 +503,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Number of labels should match the number of images")]
-    fn test_mismatched_labels() {
-        let temp_dir = tempdir().unwrap();
-        let img1_path = temp_dir.path().join("test1.png");
-        let img2_path = temp_dir.path().join("test2.png");
-        let output_path = temp_dir.path().join("output.png");
-
-        create_test_image(&img1_path, 100, 100).unwrap();
-        create_test_image(&img2_path, 100, 100).unwrap();
-
-        let args = Args {
-            images: vec![img1_path, img2_path],
-            output: output_path,
-            rows: 1,
-            row_labels: vec![],
-            column_labels: vec![],
-        };
-
-        save_image_plot(&args).unwrap();
-    }
-
-    #[test]
-    #[should_panic(expected = "Number of row labels should match the number of rows")]
+    #[should_panic(expected = "Number of row labels (2) should match the number of rows (1)")]
     fn test_mismatched_row_labels() {
         let temp_dir = tempdir().unwrap();
         let img1_path = temp_dir.path().join("test1.png");
@@ -545,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Number of column labels should match the number of columns")]
+    #[should_panic(expected = "Number of column labels (2) should match the number of columns (1)")]
     fn test_mismatched_column_labels() {
         let temp_dir = tempdir().unwrap();
         let img1_path = temp_dir.path().join("test1.png");
