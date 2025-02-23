@@ -4,7 +4,7 @@ use ab_glyph::{Font, FontRef, GlyphId, Point, PxScale, ScaleFont};
 use anyhow::{Context, Result};
 use clap::Parser;
 use image::{Rgb, RgbImage};
-use imx::numeric;
+use imx::numeric::{self, f32_to_u8, i32_to_u32, u32_to_i32, f32_to_i32};
 use rgb::{FromSlice, RGB8};
 use std::path::PathBuf;
 
@@ -98,23 +98,26 @@ fn draw_text(
             let bounds = outlined.px_bounds();
             outlined.draw(|x, y, coverage| {
                 // Convert the coverage value into an alpha channel value
-                let alpha = (coverage * 255.0) as u8;
+                let alpha = f32_to_u8(coverage * 255.0);
                 if alpha == 0 {
                     return;
                 }
 
-                // Get absolute pixel coordinates
-                let px = (x as i32 + bounds.min.x as i32) as u32;
-                let py = (y as i32 + bounds.min.y as i32) as u32;
+                // Get absolute pixel coordinates - x and y are u32 from the draw callback
+                // bounds.min.x and bounds.min.y are f32
+                #[allow(clippy::cast_precision_loss)]
+                let px = i32_to_u32(f32_to_i32((x as f32) + bounds.min.x));
+                #[allow(clippy::cast_precision_loss)]
+                let py = i32_to_u32(f32_to_i32((y as f32) + bounds.min.y));
 
                 // Blend the color with the existing pixel based on alpha
                 if px < canvas.width() && py < canvas.height() {
                     let pixel = canvas.get_pixel_mut(px, py);
                     let blend = |a: u8, b: u8, alpha: u8| -> u8 {
-                        let a = a as f32;
-                        let b = b as f32;
-                        let alpha = alpha as f32 / 255.0;
-                        ((a * (1.0 - alpha) + b * alpha) as u8).min(255)
+                        let a = f32::from(a);
+                        let b = f32::from(b);
+                        let alpha = f32::from(alpha) / 255.0;
+                        f32_to_u8(a * (1.0 - alpha) + b * alpha)
                     };
 
                     pixel[0] = blend(pixel[0], color[0], alpha);
@@ -126,17 +129,21 @@ fn draw_text(
 
         // Check for color emoji image
         if let Some(img) = font.glyph_raster_image2(glyph_id, u16::MAX) {
-            let img_width = img.width as u32;
-            let scale_factor = scale / img.pixels_per_em as f32;
+            let img_width = u32::from(img.width);
+            let scale_factor = scale / f32::from(img.pixels_per_em);
 
             // Convert raw bytes to RGB pixels
             let pixels: &[RGB8] = img.data.as_rgb();
             for (img_y, row) in pixels.chunks(img_width as usize).enumerate() {
                 for (img_x, pixel) in row.iter().enumerate() {
+                    // Note: For image coordinates, some precision loss is acceptable
+                    #[allow(clippy::cast_precision_loss)]
                     let src_x = img_x as f32 * scale_factor;
+                    #[allow(clippy::cast_precision_loss)]
                     let src_y = img_y as f32 * scale_factor;
-                    let canvas_x = (glyph_position.x + src_x + img.origin.x * scale_factor) as u32;
-                    let canvas_y = (glyph_position.y + src_y + img.origin.y * scale_factor) as u32;
+                    
+                    let canvas_x = i32_to_u32(f32_to_i32(glyph_position.x + src_x + img.origin.x * scale_factor));
+                    let canvas_y = i32_to_u32(f32_to_i32(glyph_position.y + src_y + img.origin.y * scale_factor));
 
                     if canvas_x < canvas.width() && canvas_y < canvas.height() {
                         let canvas_pixel = canvas.get_pixel_mut(canvas_x, canvas_y);
@@ -219,12 +226,17 @@ fn save_image_plot(args: &Args) -> Result<()> {
     // Add column labels
     if !column_labels.is_empty() {
         for (col, label) in column_labels.iter().enumerate() {
-            let x = (col as u32 * image_width + left_padding + image_width / 2) as i32;
-            let y = (TOP_PADDING / 2) as i32;
+            let x = u32_to_i32(u32::try_from(col).unwrap_or(0) * image_width + left_padding + image_width / 2);
+            let y = u32_to_i32(TOP_PADDING / 2);
+            
+            // Note: For text positioning, precision loss in usize to f32 conversion is acceptable
+            #[allow(clippy::cast_precision_loss)]
+            let label_offset = (label.len() as f32) * 20.0 / 2.0;
+            
             draw_text(
                 &mut canvas,
                 label,
-                x - ((label.len() as f32 * 20.0) / 2.0) as i32, // Center text
+                x - f32_to_i32(label_offset),
                 y,
                 24.0,
                 fonts,
@@ -246,7 +258,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
         // Add row label if provided (left of the image)
         if let Some(row_label) = row_labels.get(row as usize) {
             let x = 20;
-            let y = (y_start + image_height / 2) as i32;
+            let y = u32_to_i32(y_start + image_height / 2);
             draw_text(
                 &mut canvas,
                 row_label,
