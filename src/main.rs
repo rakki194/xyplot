@@ -50,51 +50,7 @@ fn draw_text(
     font: &FontRef,
     color: Rgb<u8>,
 ) {
-    let px_scale = PxScale::from(scale);
 
-    // Calculate total text width for centering
-    let mut total_width = 0.0;
-    let glyphs: Vec<_> = text
-        .chars()
-        .map(|c| {
-            let glyph_id = font.glyph_id(c);
-            let advance = font.h_advance_unscaled(glyph_id);
-            total_width += advance;
-            glyph_id
-        })
-        .collect();
-
-    // Start position, accounting for total width to center the text
-    let start_x = x - numeric::f32_to_i32(total_width * scale / 2.0);
-    let mut x_offset = 0.0;
-
-    // Draw each character
-    for glyph_id in glyphs {
-        let position = Point {
-            x: numeric::i32_to_f32_for_pos(start_x) + x_offset,
-            y: numeric::i32_to_f32_for_pos(y),
-        };
-
-        let glyph = glyph_id.with_scale_and_position(px_scale, position);
-
-        if let Some(outlined) = font.outline_glyph(glyph) {
-            let bounds = outlined.px_bounds();
-            outlined.draw(|gx, gy, coverage| {
-                let x = numeric::f32_to_i32(bounds.min.x) + numeric::u32_to_i32(gx);
-                let y = numeric::f32_to_i32(bounds.min.y) + numeric::u32_to_i32(gy);
-                let canvas_width = numeric::u32_to_i32(canvas.width());
-                let canvas_height = numeric::u32_to_i32(canvas.height());
-
-                if x >= 0 && y >= 0 && x < canvas_width && y < canvas_height {
-                    let pixel =
-                        canvas.get_pixel_mut(numeric::i32_to_u32(x), numeric::i32_to_u32(y));
-                    let coverage = numeric::f32_to_u8(coverage * 255.0);
-                    *pixel = Rgb([color[0], color[1], color[2]]);
-                }
-            });
-        }
-        x_offset += font.h_advance_unscaled(glyph_id) * scale;
-    }
 }
 
 fn save_image_plot(args: &Args) -> Result<()> {
@@ -150,24 +106,8 @@ fn save_image_plot(args: &Args) -> Result<()> {
     }
 
     // Load font
-    let font_data = include_bytes!("../assets/DejaVuSans.ttf");
-    let font = FontRef::try_from_slice(font_data).context("Failed to load font")?;
-    let scale = 80.0; // Increased scale significantly for better visibility
-    let color = Rgb([0, 0, 0]); // Pure black
 
     // Add column labels
-    for (i, label) in column_labels.iter().enumerate() {
-        let x =
-            numeric::u32_to_i32(u32::try_from(i)? * image_width + left_padding + image_width / 2);
-        draw_text(
-            &mut canvas,
-            label,
-            x,
-            numeric::u32_to_i32(top_padding / 2), // Position text in middle of top padding
-            scale,
-            &font,
-            color,
-        );
     }
 
     // Place images and labels
@@ -181,29 +121,8 @@ fn save_image_plot(args: &Args) -> Result<()> {
         let y_start = row * row_height + top_padding;
 
         // Add image label if provided (above the image)
-        if i < u32::try_from(labels.len())? {
-            let x = numeric::u32_to_i32(x_start + image_width / 2);
-            let label_y = numeric::u32_to_i32(y_start - top_padding / 2); // Position text in middle of top padding
-            let label_text = &labels[i as usize];
-            println!(
-                "Drawing label '{}' at position ({}, {})",
-                label_text, x, label_y
-            );
-            draw_text(&mut canvas, label_text, x, label_y, scale, &font, color);
-        }
 
-        // Add row label
-        if row < u32::try_from(row_labels.len())? {
-            draw_text(
-                &mut canvas,
-                &row_labels[row as usize],
-                5,
-                numeric::u32_to_i32(y_start + image_height / 2),
-                scale,
-                &font,
-                color,
-            );
-        }
+        // Add row label if provided (left of the image)
 
         // Load and place image
         let img = image::open(img_path)
