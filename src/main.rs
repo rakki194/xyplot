@@ -110,11 +110,19 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
     // Validate inputs
     if !labels.is_empty() && labels.len() != images.len() {
-        anyhow::bail!("Number of labels should match the number of images");
+        anyhow::bail!(
+            "Number of labels ({}) should match the number of images ({})",
+            labels.len(),
+            images.len()
+        );
     }
 
     if !row_labels.is_empty() && row_labels.len() != rows as usize {
-        anyhow::bail!("Number of row labels should match the number of rows");
+        anyhow::bail!(
+            "Number of row labels ({}) should match the number of rows ({})",
+            row_labels.len(),
+            rows
+        );
     }
 
     let cols = u32::try_from(images.len())
@@ -122,7 +130,11 @@ fn save_image_plot(args: &Args) -> Result<()> {
         .div_ceil(rows);
 
     if !column_labels.is_empty() && column_labels.len() != cols as usize {
-        anyhow::bail!("Number of column labels should match the number of columns");
+        anyhow::bail!(
+            "Number of column labels ({}) should match the number of columns ({})",
+            column_labels.len(),
+            cols
+        );
     }
 
     // Read the first image to determine dimensions
