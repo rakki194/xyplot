@@ -1,6 +1,6 @@
 # xyplot
 
-A Rust tool for plotting images in a grid layout with optional labels. This is a port of the original Python xyplot tool.
+A Rust tool for plotting images in a grid layout with optional labels.
 
 ## Features
 
