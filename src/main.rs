@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use image::{Rgb, RgbImage};
 use imx::numeric;
+use rgb::{FromSlice, RGB8};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -30,6 +31,9 @@ struct Args {
     #[arg(long)]
     column_labels: Vec<String>,
 }
+
+// Constants for layout
+const TOP_PADDING: u32 = 40; // Space for labels and padding at the top
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -78,14 +82,18 @@ fn draw_text(
     for c in text.chars() {
         let (id, font) = fonts.glyph_id(c);
         let scaled_font = font.as_scaled(px_scale);
-        let glyph = id.with_scale(scaled_font.scale()).positioned(cursor);
-        cursor.x += scaled_font.h_advance(glyph.id);
+        // Create a glyph with scale and position
+        let glyph = id.with_scale_and_position(px_scale, cursor);
+        cursor.x += scaled_font.h_advance(id);
         glyphs.push((glyph, font));
     }
 
     // Second pass: render glyphs
     for (glyph, font) in glyphs {
         let scaled_font = font.as_scaled(px_scale);
+        let glyph_position = glyph.position; // Store position before moving glyph
+        let glyph_id = glyph.id; // Store ID before moving glyph
+
         if let Some(outlined) = scaled_font.outline_glyph(glyph) {
             let bounds = outlined.px_bounds();
             outlined.draw(|x, y, coverage| {
@@ -117,27 +125,25 @@ fn draw_text(
         }
 
         // Check for color emoji image
-        if let Some(img) = font.glyph_raster_image2(glyph.id, u16::MAX) {
-            if let Some(data) = img.data.as_rgba() {
-                let img_width = img.width as u32;
-                let scale_factor = scale / img.pixels_per_em as f32;
-                let scaled_width = (img_width as f32 * scale_factor) as u32;
-                let scaled_height = (img.height as f32 * scale_factor) as u32;
+        if let Some(img) = font.glyph_raster_image2(glyph_id, u16::MAX) {
+            let img_width = img.width as u32;
+            let scale_factor = scale / img.pixels_per_em as f32;
 
-                for (img_y, row) in data.chunks_exact(img_width as usize * 4).enumerate() {
-                    for (img_x, pixel) in row.chunks_exact(4).enumerate() {
-                        let src_x = img_x as f32 * scale_factor;
-                        let src_y = img_y as f32 * scale_factor;
-                        let canvas_x = (glyph.position.x + src_x + img.origin.x * scale_factor) as u32;
-                        let canvas_y = (glyph.position.y + src_y + img.origin.y * scale_factor) as u32;
+            // Convert raw bytes to RGB pixels
+            let pixels: &[RGB8] = img.data.as_rgb();
+            for (img_y, row) in pixels.chunks(img_width as usize).enumerate() {
+                for (img_x, pixel) in row.iter().enumerate() {
+                    let src_x = img_x as f32 * scale_factor;
+                    let src_y = img_y as f32 * scale_factor;
+                    let canvas_x = (glyph_position.x + src_x + img.origin.x * scale_factor) as u32;
+                    let canvas_y = (glyph_position.y + src_y + img.origin.y * scale_factor) as u32;
 
-                        if canvas_x < canvas.width() && canvas_y < canvas.height() {
-                            let canvas_pixel = canvas.get_pixel_mut(canvas_x, canvas_y);
-                            let alpha = pixel[3] as f32 / 255.0;
-                            canvas_pixel[0] = ((1.0 - alpha) * canvas_pixel[0] as f32 + alpha * pixel[0] as f32) as u8;
-                            canvas_pixel[1] = ((1.0 - alpha) * canvas_pixel[1] as f32 + alpha * pixel[1] as f32) as u8;
-                            canvas_pixel[2] = ((1.0 - alpha) * canvas_pixel[2] as f32 + alpha * pixel[2] as f32) as u8;
-                        }
+                    if canvas_x < canvas.width() && canvas_y < canvas.height() {
+                        let canvas_pixel = canvas.get_pixel_mut(canvas_x, canvas_y);
+                        // For emoji, we'll use full opacity since they're typically fully opaque
+                        canvas_pixel[0] = pixel.r;
+                        canvas_pixel[1] = pixel.g;
+                        canvas_pixel[2] = pixel.b;
                     }
                 }
             }
@@ -179,7 +185,6 @@ fn save_image_plot(args: &Args) -> Result<()> {
     let (image_width, image_height) = first_image.dimensions();
 
     // Define canvas dimensions
-    let label_height: u32 = 20; // Increased from 30 to give more height for labels
     let left_padding = if row_labels.iter().any(|l| !l.is_empty()) {
         150 // Increased from 40 to give more space for row labels
     } else {
@@ -188,8 +193,8 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
     // Calculate canvas dimensions with space for labels
     let has_labels = !row_labels.is_empty() || !column_labels.is_empty();
-    let row_height = image_height + (if has_labels { top_padding } else { 0 });
-    let canvas_height = row_height * rows + (if has_labels { top_padding } else { 0 });
+    let row_height = image_height + (if has_labels { TOP_PADDING } else { 0 });
+    let canvas_height = row_height * rows + (if has_labels { TOP_PADDING } else { 0 });
     let canvas_width = image_width * cols + left_padding;
 
     // Create canvas
@@ -215,7 +220,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
     if !column_labels.is_empty() {
         for (col, label) in column_labels.iter().enumerate() {
             let x = (col as u32 * image_width + left_padding + image_width / 2) as i32;
-            let y = (top_padding / 2) as i32;
+            let y = (TOP_PADDING / 2) as i32;
             draw_text(
                 &mut canvas,
                 label,
@@ -236,7 +241,7 @@ fn save_image_plot(args: &Args) -> Result<()> {
 
         // Calculate positions
         let x_start = col * image_width + left_padding;
-        let y_start = row * row_height + top_padding;
+        let y_start = row * row_height + TOP_PADDING;
 
         // Add row label if provided (left of the image)
         if let Some(row_label) = row_labels.get(row as usize) {
