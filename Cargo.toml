@@ -9,7 +9,7 @@ repository = "https://github.com/rakki194/xyplot"
 
 [dependencies]
 xio = "0.1.7"
-imx = "0.1.9"
+imx = "0.1.10"
 tokio = { version = "1.43.0", features = ["full"] }
 clap = { version = "4.5.30", features = ["derive"] }
 anyhow = "1.0.96"
